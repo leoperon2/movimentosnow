@@ -1,5 +1,5 @@
-from flask import Flask, request, jsonify
-import tempfile, os, base64
+from flask import Flask, request, jsonify, send_file
+import tempfile, os, base64, io
 from gerar_guia import dados_pet, gerar_pdf
 
 app = Flask(__name__)
@@ -34,9 +34,11 @@ def gerar():
         gerar_pdf(pet, tutor_nome=tutor, caminho_saida=caminho)
 
         with open(caminho, "rb") as f:
-            pdf_b64 = base64.b64encode(f.read()).decode("utf-8")
+            pdf_bytes = f.read()
 
         os.unlink(caminho)
+
+        pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
         return jsonify({
             "success": True,
@@ -46,6 +48,47 @@ def gerar():
             "porcao_div": pet["porcao_div"],
             "meta": pet["meta"]
         })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/gerar-pdf-binario", methods=["POST"])
+def gerar_binario():
+    """Retorna o PDF diretamente como arquivo binário para download"""
+    try:
+        body = request.get_json(force=True)
+
+        tutor   = body.get("tutor_nome", "Tutor")
+        nome    = body.get("nome_pet", "Pet")
+        especie = body.get("especie", "Cão")
+        raca    = body.get("raca", especie)
+        peso    = float(body.get("peso_kg", 10))
+        fase    = body.get("fase_vida", "Adulto")
+        ativ    = body.get("atividade", "Moderada")
+
+        import gerar_guia
+        gerar_guia.LOGO_PATH = LOGO_PATH
+
+        pet = dados_pet(nome, especie, raca, peso, fase, ativ)
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            caminho = tmp.name
+
+        gerar_pdf(pet, tutor_nome=tutor, caminho_saida=caminho)
+
+        with open(caminho, "rb") as f:
+            pdf_bytes = f.read()
+
+        os.unlink(caminho)
+
+        filename = f"plano_{nome.lower().replace(' ', '_')}.pdf"
+
+        return send_file(
+            io.BytesIO(pdf_bytes),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename
+        )
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
